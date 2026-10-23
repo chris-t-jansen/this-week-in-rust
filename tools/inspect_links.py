@@ -1,47 +1,54 @@
 #!/usr/bin/python3
 
 """
-Inspect a set of markdown files, and warn if there are:
+Inspect a set of markdown files, and produce errors/warnings if there are:
 - duplicate links
 - malformed links
+- usually-rejected links
 """
 
 import argparse
+from typing import Union
 import bs4
 import logging
 import markdown
 import os
 import re
 import sys
+import pygit2
 import urllib.parse
 
 LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.INFO)
 
 
-class Warnings:
-    """ A singleton object for gathering warnings to be printed later. """
+class Diagnostics:
+    """ A singleton object for gathering diagnostics to be printed later. """
 
     def __init__(self):
-        self.warnings = []
-        self.silent = False
-
-    def silence(self, val):
-        self.silent = val
+        self._errors = []
+        self._warnings = []
 
     def warn(self, msg):
-        if not self.silent:
-            self.warnings.append(msg)
+        self._warnings.append(msg)
 
-    def get(self):
-        return self.warnings
+    def error(self, msg):
+        self._errors.append(msg)
+
+    def drain_errors_and_warnings(self) -> tuple[list[str], list[str]]:
+        to_return = (self._errors, self._warnings)
+        self._errors = []
+        self._warnings = []
+        return to_return
 
 
-# The singleton object that gathers warnings, for later reporting.
-warnings = Warnings()
+# The singleton object that gathers warnings & errors, for later reporting.
+diagnostics = Diagnostics()
 
 # A regex that matches filenames to inspect.
 RE_FILENAME = re.compile(r'\d\d\d\d-\d\d-\d\d-this-week-in-rust.md$')
+
+# A regex that matches bare GitHub repo URLs.
+RE_GITHUB_REPO = re.compile(r'https://github.com/[^/]+/[^/]+/?[^/]*$')
 
 # A block-list of tracking parameters
 TRACKING_PARAMETERS = set([
@@ -49,12 +56,22 @@ TRACKING_PARAMETERS = set([
     'utm_campaign',
     'utm_medium',
     'utm_content',
+    'si',
 ])
 
-# A list of section titles that will trigger duplicate-tag detection.
+# A list of section titles that will trigger strict checks.
 STRICT_TITLES = [
     'updates from rust community',
 ]
+
+PROJECT_TOOLING_TITLE = 'project/tooling updates'
+
+PROJECT_TOOLING_LINK_ERROR = (
+    'We are no longer accepting pull request submissions for the Project/Tooling Updates '
+    'section (see [here](https://github.com/rust-lang/this-week-in-rust/issues/8575) '
+    'for more details). This may be a better fit for the weekly '
+    '["What is Everyone Working On This Week?" thread on r/rust](https://www.reddit.com/r/rust/?f=flair_name%3A%22🐝%20activity%20megathread%22).'
+)
 
 
 def is_strict_title(title):
@@ -71,27 +88,30 @@ def check_truncated_title(tag):
     Links collected from Discord may be truncated to a length of exactly
     70 characters, including a "..." suffix.
 
-    If we're unlucky enough to trigger this warning by mistake, here are
-    some workarounds:
-    - Make any change to the title so that it's not exactly 70 characters
-      (e.g. add an extra space between words)
-    - Replace the "..." with unicode "…"
     """
     title = tag.string
     LOG.debug(f'link title: {repr(title)}')
     if title and title.endswith('...') and len(title) == 70:
-        warnings.warn(f'truncated link title: {repr(title)}')
+        diagnostics.warn(f'this link title may be unintentionally truncated: {repr(title)}')
 
+def check_suspicious(domain, url):
+  if RE_GITHUB_REPO.match(url):
+    diagnostics.warn(f"link {url} is directly to a GitHub repo; "
+      "please double check our guidelines here: https://github.com/rust-lang/this-week-in-rust#projectstooling-updates")
+  elif domain.lower() == "crates.io":
+    diagnostics.warn(f"link {url} is to crates.io -- we do not usually include links directly to crates on crates.io; "
+      "please double check our guidelines here: https://github.com/rust-lang/this-week-in-rust#projectstooling-updates")
 
-def extract_links(html):
+def extract_links(filename, html, *, deny_project_tooling_links=False):
     """ Return a list of links from this file.
 
     Links will only be returned if they are within a section deemed "strict".
-    This allows us to ignore links that are deliberately repeated (to this
-    github repo and twitter account, for example).
+    This allows us to ignore links that are deliberately repeated or don't
+    follow usual contribution guidelines (to this github repo and twitter
+    account, for example).
 
     Side-effects:
-    - If links are malformed, warnings may be recorded. See `parse_url`
+    - If links are malformed, diagnostics may be recorded. See `parse_url`
       for details.
 
     """
@@ -102,17 +122,26 @@ def extract_links(html):
     # Remember the header level (h2, h3, etc) when we turned on
     # strict_mode.
     header_level = None
+    project_tooling_level = None
 
     for tag in bs4.BeautifulSoup(html, 'html.parser').find_all(tags):
         if tag.name == 'a':
             link = tag.get('href')
             LOG.debug(f'found link tag: {link}')
+            if deny_project_tooling_links and project_tooling_level:
+                diagnostics.error(f'{link}: {PROJECT_TOOLING_LINK_ERROR}')
             if strict_mode:
                 check_truncated_title(tag)
-                trimmed_url = parse_url(link)
+                trimmed_url = parse_url(filename, link)
                 urls.append(trimmed_url)
         else:
             level = tag.name
+            if project_tooling_level and level <= project_tooling_level:
+                project_tooling_level = None
+            if (deny_project_tooling_links and
+                    str(tag.string).lower() == PROJECT_TOOLING_TITLE):
+                project_tooling_level = level
+
             if header_level and level > header_level:
                 LOG.debug(f'skipping {tag}, overridden at {header_level}')
                 continue
@@ -130,7 +159,7 @@ def extract_links(html):
     return urls
 
 
-def scrub_parameters(url, query):
+def scrub_parameters(filename, url, query):
     """ Strip tracking parameters from the URL """
     query_dict = urllib.parse.parse_qs(query)
 
@@ -144,7 +173,7 @@ def scrub_parameters(url, query):
 
     # Store a warning if
     if found_tracking:
-        warnings.warn(f'found tracking parameters on {url}: {found_tracking}')
+        diagnostics.error(f'found tracking parameters in file {filename} on {url}: {found_tracking}')
 
     # If there are no query parameters left, return the empty string.
     if not filtered_dict:
@@ -154,7 +183,7 @@ def scrub_parameters(url, query):
     return urllib.parse.urlencode(filtered_dict, doseq=True)
 
 
-def parse_url(link):
+def parse_url(filename, link):
     """ Parse a URL and return it in a stripped-down form.
 
     In an effort to detect duplicate URLs, some information is removed:
@@ -162,14 +191,14 @@ def parse_url(link):
     - "http" and "https" URLs are considered the same.
     - consecutive slashes and trailing slashes are ignored.
 
-    Warnings may be issued if unnecessary tracking parameters are found,
+    Diagnostics may be issued if unnecessary tracking parameters are found,
     or if the URL contains consecutive slashes.
     """
     parsed_url = urllib.parse.urlsplit(link)
 
     scheme = parsed_url.scheme
     if scheme not in ('mailto', 'http', 'https'):
-        warnings.warn(f'possibly malformed link: {link}')
+        diagnostics.error(f'unexpected/malformed link scheme: {link}')
     if scheme == 'http':
         scheme = 'https'
 
@@ -177,7 +206,7 @@ def parse_url(link):
     query = parsed_url.query
     if query:
         LOG.debug(f'{parsed_url.geturl()} found query parameters: {query}')
-        query = scrub_parameters(link, query)
+        query = scrub_parameters(filename, link, query)
         if query:
             LOG.debug(
                 f'{parsed_url.geturl()} keeping query parameters: {query}')
@@ -196,7 +225,7 @@ def parse_url(link):
     reconstituted = urllib.parse.urlunsplit((sch, loc, path, query, frag))
     if reconstituted != link:
         LOG.debug(f'reconstituted: {reconstituted}')
-        warnings.warn(f'link can be simplified: {link} -> {reconstituted}')
+        diagnostics.error(f'link can be simplified: {link} -> {reconstituted}')
 
     # Strip any trailing slashes, again.
     path = path.rstrip('/')
@@ -205,14 +234,25 @@ def parse_url(link):
     # need to warn about
     reconstituted = urllib.parse.urlunsplit((scheme, loc, path, query, frag))
 
+    check_suspicious(loc, link)
+
     return reconstituted
 
-
-def inspect_file(filename):
+def inspect_file(filename, *, tree: Union[pygit2.Tree, None] = None,
+                 deny_project_tooling_links=False):
     LOG.info(f'inspecting file {filename}')
-    md_text = open(filename).read()
+    if tree:
+        if filename in tree:
+            md_text = tree[filename].data.decode('utf-8')
+        else:
+            # When looking at old commits, missing files are ok -- they were just added later
+            LOG.debug(f'skipping missing file in tree: {filename}')
+            return []
+    else:
+        md_text = open(filename).read()
     html = markdown.markdown(md_text)
-    links = extract_links(html)
+    links = extract_links(
+        filename, html, deny_project_tooling_links=deny_project_tooling_links)
     LOG.debug(f'examining {len(links)} links')
     return links
 
@@ -247,23 +287,26 @@ def get_recent_files(dirs, count):
     return listing
 
 
-def inspect_files(file_list, num_warn):
-    """ Inspect a set of files, storing warnings about duplicate links. """
+def inspect_files(file_list: list[str], *, tree: Union[pygit2.Tree, None] = None,
+                  deny_project_tooling_links=False):
+    """ Inspect a set of files, storing errors about duplicate links. """
     linkset = {}
 
-    # If we inspect 5 files (enumerated 0-4), and want to warn on 2,
-    # then the warnings start at N=3 (length - 1 - num_warn).
-    warn_index = len(file_list) - 1 - num_warn
-
     for index, file in enumerate(file_list):
-        warnings.silence(index < warn_index)
-        links = inspect_file(file)
+        links = inspect_file(
+            file,
+            tree=tree,
+            deny_project_tooling_links=deny_project_tooling_links,
+        )
         LOG.debug(f'found links: {links}')
         for link in links:
             collision = linkset.get(link)
             if collision:
-                warnings.warn(
-                    f"possible duplicate link {link} in file {file} (also found in {collision}")
+                if file == collision:
+                    diagnostics.error(f"possible duplicate link {link} found twice in {file}")
+                else:
+                    diagnostics.error(
+                        f"possible duplicate link {link} in file {file} (also found in {collision})")
             else:
                 linkset[link] = file
 
@@ -274,31 +317,60 @@ def main():
                         help="Directory paths to inspect (colon separated)")
     parser.add_argument('--num-recent', default=25, type=int,
                         help="Number of recent files to inspect")
-    parser.add_argument('--num-warn', default=1, type=int,
-                        help="Number of recent files to warn about")
+    parser.add_argument('--since', default=None, type=str,
+                        help="Show only diagnostics which appear after the given git commit")
+    parser.add_argument("--show-warnings", default=False, action='store_true',
+                        help="Show warnings as well as errors (warnings never affect exit code)")
+    parser.add_argument("--deny-project-tooling-links", default=False,
+                        action='store_true',
+                        help="Reject links in the Project/Tooling Updates section")
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
     if args.debug:
-        LOG.setLevel(logging.DEBUG)
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
     LOG.debug(f'command-line arguments: {args}')
+
     file_list = get_recent_files(args.paths, args.num_recent)
-    inspect_files(file_list, args.num_warn)
+    inspect_files(
+        file_list,
+        deny_project_tooling_links=args.deny_project_tooling_links,
+    )
 
+    (errors, warnings) = diagnostics.drain_errors_and_warnings()
 
-def setup_logging():
-    log_stdout = logging.StreamHandler(sys.stdout)
-    logging.getLogger('').addHandler(log_stdout)
+    if args.since:
+        try:
+            tree = pygit2.Repository(".").revparse_single(args.since).tree
+        except KeyError:
+            raise ValueError(f'no such commit: {args.since}')
+
+        LOG.info(f"inspecting files since commit {args.since}")
+        inspect_files(
+            file_list,
+            tree=tree,
+            deny_project_tooling_links=args.deny_project_tooling_links,
+        )
+        (old_errors, old_warnings) = diagnostics.drain_errors_and_warnings()
+        errors = [e for e in errors if e not in old_errors]
+        warnings = [w for w in warnings if w not in old_warnings]
+
+    if not args.show_warnings:
+        warnings = []
+
+    if errors or warnings:
+        LOG.info("diagnostics exist:")
+        for d in errors:
+            print(f"* error: {d}")
+        for d in warnings:
+            print(f"* warning: {d}")
+    else:
+        LOG.info("everything is ok!")
+
+    if errors:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    setup_logging()
     main()
-
-    warns = warnings.get()
-    if warns:
-        print("warnings exist:")
-        for w in warns:
-            print(w)
-        sys.exit(1)
-    else:
-        print("everything is ok!")

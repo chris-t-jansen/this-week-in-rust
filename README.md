@@ -55,7 +55,6 @@ What we are generally looking for includes:
 
 * how-to intros (and advanced deep dives) into Rust concepts and areas
 * Rust walkthroughs that explain concepts in different ways than well known resources like [the Rust book](https://doc.rust-lang.org/stable/book/), [Rustlings](https://github.com/rust-lang/rustlings), and [Rust by Example](https://doc.rust-lang.org/stable/rust-by-example/)
-* updates on tooling when in long form or framed as a tutorial (for more details, see what we are not looking for below)
 * Rust-related podcast episodes
 * Rust-related screenshots and videos
 * Rust meetup recordings
@@ -74,25 +73,19 @@ What we are generally NOT looking for includes:
 * Anything behind a paywall (this includes Medium's paid article / members-only mechanism)
 * Anything that requires information to be shared/captured (like an email address) in order to access
 
+## LLM-written articles
+
+We expect community links to be articles that were created by humans. We don't accept articles written by LLMs.
+
+TWiR does not have a policy about the use of LLMs to write code, but we do care whether articles submitted to TWiR were written by people. Articles containing excessive LLM output may be declined at the editors discretion.
+
+TWiR exists as part of a broader Rust community: we try to promote interactions within that community, enabling people to share and discover ideas, projects, original thoughts. If the author is an LLM, the truthfulness of its output may be compromised, and that's a problem. But more importantly, there is no community growth happening: there is no author to learn from community feedback, and the reader is not able to connect with a peer.
+
+Articles that were machine-translated from another language are allowed.
+
 ## Projects/Tooling Updates
 
-There are further guidelines for the Projects/Tooling Updates Section
-
-We include:
-* Updates on tooling when in long form or framed as a tutorial (this can be through a blog, through GitHub, through a newsletter, and more) - it must have a high amount of Rust specific info (examples in Rust, notes on things learned about Rust in the process of creating/updating the project, etc.)
-* Updates on tooling that call out specific contributors - it is wonderful to highlight all the great people contributing to Rust OSS projects (Note - the update still must include a high amount of Rust specific info)
-* Changelogs of projects (though we strongly prefer the changelogs be accompanied with details on the changes, guides to using the changes, etc.)
-
-We do not include:
-* Links that are solely to a GitHub repo or crate on crates.io. While we would love to include these, there are too many being created/updated every week for us to include them all. We encourage you to write up an introduction to your project with examples, information you learned through creating the project, changes you recently made to the project, etc.
-
-Notes:
-* A small description of the project or the update in your link is encouraged (for example: FooBar 1.0: adding support for Baz)
-* We discourage submitting links and link descriptions that are solely of a commercial/sales nature
-
-These are meant to be guidelines, if you are ever not sure about whether something should be included please feel free to open a pull request anyway and we can discuss it!
-
-The editors of This Week in Rust do reserve the right to make the decision about whether to include something or not, but we intend to do so in a way that is as transparent as possible.
+We are no longer accepting pull request submissions for the Project/Tooling Updates section (see [here](https://github.com/rust-lang/this-week-in-rust/issues/8575) for more details).
 
 ## Events
 
@@ -165,7 +158,7 @@ git log --author=bors --since='MM/DD/YYYY 12:00PM' --until='MM/DD/YYYY 12:00PM' 
 edit in vim to get rid of everything but PR number, copy into clipboard
 
 ```
-for pr in $(xsel -ob); do firefox https://github.com/mozilla/rust/pull/$pr; sleep 0.07; done
+for pr in $(xsel -ob); do firefox https://github.com/rust-lang/rust/pull/$pr; sleep 0.07; done
 ```
 
 wait a long time...

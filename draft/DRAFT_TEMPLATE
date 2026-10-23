@@ -45,6 +45,9 @@ and just ask the editors to select the category.
 
 ### Project/Tooling Updates
 
+<!-- IMPORTANT NOTE: We are no longer accepting pull request submissions for the Project/Tooling Updates section.
+See here for details: https://github.com/rust-lang/this-week-in-rust/issues/8575 -->
+
 ### Observations/Thoughts
 
 ### Rust Walkthroughs
@@ -108,6 +111,7 @@ You may remove the `call-for-testing` label.  Please feel free to leave the `cal
 If you are a feature implementer and would like your RFC to appear on the above list, add the new `call-for-testing`
 label to your RFC along with a comment providing testing instructions and/or guidance on which aspect(s) of the feature
 need testing.
+
 
 ## Call for Participation; projects and speakers
 
