@@ -75,8 +75,7 @@ and just ask the editors to select the category.
 * [audio] [Radar with Jeff Kao](https://corrode.dev/podcast/s05e08-radar/)
 
 ### Rust Walkthroughs
-[ES] [Command Pattern in Rust: When intent doesn't need to be an object](https://codigolinea.com/patron-command-en-rust/) 
-
+* [ES] [Command Pattern in Rust: When intent doesn't need to be an object](https://codigolinea.com/patron-command-en-rust/)
 * [series] [Part 3: Model Architecture, Building an LLM from Scratch in Rust](https://www.tag1.com/how-to/part3-model-architecture-building-an-llm-from-scratch/)
 * [The Impatient Programmer’s Guide to Bevy and Rust: Chapter 5 - Let There Be Pickups](https://aibodh.com/posts/bevy-rust-game-development-chapter-5/)
 * [audio] [Netstack.FM episode 22 — Rust URL with Simon Sapin](https://netstack.fm/#episode-22)
@@ -190,7 +189,7 @@ If you are an event organizer hoping to expand the reach of your event, please s
 
 #### Clippy
 * [A `return` in an iterator closure should not trigger `never_loop`](https://github.com/rust-lang/rust-clippy/pull/16364)
-* [`strlen_on_c_strings`: mention the specific type (`CString or `CStr`)`](https://github.com/rust-lang/rust-clippy/pull/16391)
+* [`strlen_on_c_strings`: mention the specific type (`CString` or `CStr`)](https://github.com/rust-lang/rust-clippy/pull/16391)
 * [`float_point_arithmetic`: respect reduced applicability](https://github.com/rust-lang/rust-clippy/pull/16366)
 * [`single_range_in_vec_init`: don't apply the suggestion automatically](https://github.com/rust-lang/rust-clippy/pull/16365)
 * [`unnecessary_map_or`: respect reduced applicability](https://github.com/rust-lang/rust-clippy/pull/16387)
